@@ -7,6 +7,7 @@ const GET_USERS = gql`
       isMarried
       name
       age
+      email
     }
   }
 `;
@@ -32,6 +33,21 @@ const CREATE_USER = gql`
     }
   }
 `;
+
+const LOGIN = gql`
+  mutation Login($email: String!) {
+    login(email: $email) {
+      token
+      user {
+        id
+        name
+        age
+        isMarried
+        email
+      }
+    }
+  }
+`;
 function App() {
   const {
     loading: getUsersLoading,
@@ -40,7 +56,7 @@ function App() {
     refetch: refetchUsers,
   } = useQuery(GET_USERS);
   const [selectedUserId, setSelectedUserId] = useState(null);
-
+  const [accessToken, setAccessToken] = useState();
   const {
     loading: userLoading,
     error: userError,
@@ -50,8 +66,10 @@ function App() {
   });
 
   const [createUser, { error: createUserError }] = useMutation(CREATE_USER);
+  const [login, { error: loginError }] = useMutation(LOGIN);
   const nameRef = useRef<HTMLInputElement>(null);
   const ageRef = useRef<HTMLInputElement>(null);
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = nameRef.current?.value;
@@ -73,6 +91,18 @@ function App() {
       refetchUsers();
     } catch (error) {
       console.error({ error: createUserError });
+    }
+  };
+
+  const handleLogin = async (email: string) => {
+    try {
+      console.log("Attempting to login with email:", email);
+      const { data } = await login({ variables: { email } });
+      setAccessToken(data.login.token);
+      console.log("Login successful, token:", data.login.token);
+      localStorage.setItem("accessToken", data.login.token);
+    } catch (error) {
+      console.error("Login error:", error);
     }
   };
 
@@ -102,6 +132,8 @@ function App() {
         <p>Loading user...</p>
       ) : (
         <p style={{ border: "1px solid orange", padding: "10px" }}>
+          <span style={{ color: "red" }}>{userError?.message}</span>
+          <br />
           Name: {userData ? userData.getUserById.name : "None"}
           <br />
           Age: {userData ? userData.getUserById.age : "None"}
@@ -121,6 +153,7 @@ function App() {
             >
               {user.name}
             </h2>
+            <button onClick={() => handleLogin(user.email)}>Login</button>
             <p>Age: {user.age}</p>
             <p>Married: {user.isMarried ? "Yes" : "No"}</p>
           </div>

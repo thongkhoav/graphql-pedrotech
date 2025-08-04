@@ -1,11 +1,25 @@
 import { ApolloServer } from '@apollo/server'
 import { startStandaloneServer } from '@apollo/server/standalone'
-import { mock } from 'node:test'
+import e from 'express'
+import jwt from 'jsonwebtoken'
+
+interface UserInterface {
+  id: string
+  name: string
+  email: string
+  role?: string
+}
+
+interface MyContext {
+  // we'd define the properties a user should have
+  // in a separate user interface (e.g., email, id, url, etc.)
+  user: UserInterface
+}
 
 const mockUsers = [
-  { id: '1', name: 'Alice', age: 30, isMarried: false, email: 'alice@example.com' },
-  { id: '2', name: 'Bob', age: 25, isMarried: true, email: 'bob@example.com' },
-  { id: '3', name: 'Charlie', age: 35, isMarried: true, email: 'charlie@example.com' }
+  { id: '1', name: 'Alice', age: 30, isMarried: false, email: 'alice@example.com', role: 'admin' },
+  { id: '2', name: 'Bob', age: 25, isMarried: true, email: 'bob@example.com', role: 'user' },
+  { id: '3', name: 'Charlie', age: 35, isMarried: true, email: 'charlie@example.com', role: 'user' }
 ]
 
 const typeDefs = `
@@ -16,6 +30,12 @@ const typeDefs = `
 
     type Mutation { 
         createUser(name: String!, age: Int!, isMarried: Boolean!): User
+        login(email: String!): AuthPayload!
+    }
+
+    type AuthPayload {
+      token: String!
+      user: User!
     }
 
     type User {
@@ -27,11 +47,14 @@ const typeDefs = `
     }
 `
 
+const secretKey = 'your_secret_key'
+
 const resolvers = {
   Query: {
     getUsers: () => mockUsers,
-    getUserById: (parent, args) => {
-      console.log({ parent, args })
+    getUserById: (parent, args, { user }) => {
+      if (!user) throw new Error('Not authenticated')
+      console.log({ parent, args, user })
       const id = args.id
       return mockUsers.find((user) => user.id === id)
     }
@@ -48,19 +71,45 @@ const resolvers = {
         name,
         age,
         isMarried,
-        email: `${name.toLowerCase()}@example.com`
+        email: `${name.toLowerCase()}@example.com`,
+        role: 'user'
       }
       mockUsers.push(newUser)
       return newUser
+    },
+    login: (parent, args) => {
+      const { email } = args
+      const existingUser = mockUsers.find((user) => user.email === email)
+      if (!existingUser) {
+        throw new Error(`User with email ${email} not found`)
+      }
+      const token = jwt.sign({ ...existingUser }, secretKey, {
+        expiresIn: '1h' // Token expires in 1 hour
+      })
+      return { token, user: existingUser }
     }
   }
 }
 
-const server = new ApolloServer({ typeDefs, resolvers })
+const server = new ApolloServer<MyContext>({ typeDefs, resolvers })
 
 const { url } = await startStandaloneServer(server, {
   listen: {
     port: 4000
+  },
+  context: async ({ req, res }): Promise<MyContext> => {
+    let token = req.headers.authorization || ''
+    token = token.replace('Bearer ', '')
+    if (token) {
+      try {
+        const user = jwt.verify(token, secretKey) as UserInterface
+        return { user }
+      } catch (error) {
+        console.error('Invalid token', error)
+        return { user: null as any }
+      }
+    }
+    return { user: null as any }
   }
 })
 
